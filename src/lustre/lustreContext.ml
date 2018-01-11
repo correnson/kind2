@@ -131,6 +131,9 @@ type t = {
   guard them. *)
   guard_pre : bool;
 
+  (* Indicates if we are evaluating an automaton *)
+  in_automaton : bool;
+
   free_constants : (Var.t D.t) IT.t;
   
 }
@@ -166,6 +169,7 @@ let mk_empty_context () =
       locals_info = [];
       outputs_info = [];
       guard_pre = false;
+      in_automaton = false;
       free_constants = IT.create 7;
     }
   in
@@ -178,16 +182,45 @@ let reset_guard_flag ctx = { ctx with guard_pre = false }
 
 let guard_flag ctx = ctx.guard_pre
 
-(* Raise parsing exception *)
-let fail_at_position pos msg = 
-  Log.log L_error "Parser error at %a: @[<v>%s@]"
-    Lib.pp_print_position pos msg;
-  raise A.Parser_error
-  
+let set_in_automaton ctx b = { ctx with in_automaton = b }
+
+let reset_in_automaton ctx = { ctx with in_automaton = false }
+
+let in_automaton ctx = ctx.in_automaton
+
 
 (* Raise parsing exception *)
-let warn_at_position pos msg = 
-  Log.log L_warn "Parser warning at %a: %s" Lib.pp_print_position pos msg
+let fail_at_position_pt pos msg =
+  Log.log L_error "Parser error at %a: @[<v>%s@]"
+    Lib.pp_print_position pos msg
+
+let fail_at_position pos msg =
+  (match Log.get_log_format () with
+   | Log.F_pt -> fail_at_position_pt pos msg
+   | Log.F_xml -> Log.parse_log_xml L_error pos msg
+   | Log.F_json -> Log.parse_log_json L_error pos msg
+   | Log.F_relay -> ()
+  );
+  raise A.Parser_error
+
+
+let warn_at_position_pt level pos msg =
+  Log.log level "Parser warning at %a: %s" Lib.pp_print_position pos msg
+
+let warn_at_position pos msg =
+  match Log.get_log_format () with
+  | Log.F_pt -> warn_at_position_pt L_warn pos msg
+  | Log.F_xml -> Log.parse_log_xml L_warn pos msg
+  | Log.F_json -> Log.parse_log_json L_warn pos msg
+  | Log.F_relay -> ()
+
+
+let note_at_position pos msg = 
+  match Log.get_log_format () with
+  | Log.F_pt -> warn_at_position_pt L_note pos msg
+  | Log.F_xml -> Log.parse_log_xml L_note pos msg
+  | Log.F_json -> Log.parse_log_json L_note pos msg
+  | Log.F_relay -> ()
 
 
 (* Raise parsing exception *)
@@ -804,6 +837,14 @@ let node_in_context ctx ident =
   N.exists_node_of_name ident (get_nodes ctx)
     
 
+(* Return true if property name has been declared in the context *)
+let prop_name_in_context ctx ident =
+  match ctx with
+  | { node = None } -> false
+  | { node = Some ({ N.props }) } ->
+    List.exists (fun (_, name, _) -> name = ident) props
+
+
 (* Add newly created variable to locals *)
 let add_state_var_to_locals = function 
   | { node = None } -> (function _ -> assert false)
@@ -951,7 +992,7 @@ let close_expr ?(bounds=[]) ?original pos ({ E.expr_init } as expr, ctx) =
   else
 
     let rctx = ref ctx in
-    let expr_init = E.map_vars (fun var ->
+    let expr_init = E.map_vars_expr (fun var ->
         if Var.is_state_var_instance var &&
            Numeral.(Var.offset_of_state_var_instance var < E.base_offset) then
           let state_var = Var.state_var_of_state_var_instance var in
@@ -1924,7 +1965,7 @@ let add_node_equation ctx pos state_var bounds indexes expr =
                    variable %s." 
                   (StateVar.string_of_state_var state_var) in
 
-              warn_at_position pos msg;
+              note_at_position pos msg;
 
               (* Expanding type of state variable to int *)
               StateVar.change_type_of_state_var state_var (Type.mk_int ());

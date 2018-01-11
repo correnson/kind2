@@ -18,6 +18,8 @@
 
 open Lib
 
+exception UnsupportedFileFormat of string
+
 module S = SubSystem
 module N = LustreNode
 
@@ -47,9 +49,9 @@ let silent_contracts_of (type s) : s t -> (Scope.t * string list) list
         (scope, silent_contracts) :: acc
     ) []
 
-  | Native subsystem -> assert false
+  | Native subsystem -> raise (UnsupportedFileFormat "Native")
 
-  | Horn subsystem -> assert false
+  | Horn subsystem -> raise (UnsupportedFileFormat "Horn")
 
 let ordered_scopes_of (type s) : s t -> Scope.t list = function
   | Lustre (subsystem, _) ->
@@ -227,6 +229,22 @@ let pp_print_path_xml
     Format.eprintf "pp_print_path_xml not implemented for native input@.";
     assert false;
 
+
+  | Horn _ -> assert false
+
+
+let pp_print_path_json
+(type s) (input_system : s t) trans_sys instances first_is_init ppf model =
+
+  match input_system with
+
+  | Lustre (subsystem, _) ->
+    LustrePath.pp_print_path_json
+      trans_sys instances subsystem first_is_init ppf model
+
+  | Native _ ->
+    Format.eprintf "pp_print_path_json not implemented for native input@.";
+    assert false;
 
   | Horn _ -> assert false
 
@@ -428,7 +446,7 @@ fun sys ->
   | Horn _ ->
     failwith "can't generate contracts from horn clause input: unsupported"
 
-let contract_gen_trans_sys_of (type s) ?(preserve_sig = false)
+let unsliced_trans_sys_of (type s) ?(preserve_sig = false)
 : s t -> Analysis.param -> TransSys.t * s t = function
 
   | Lustre (
@@ -437,10 +455,11 @@ let contract_gen_trans_sys_of (type s) ?(preserve_sig = false)
     (* Format.printf "contract gen: %d subsystems@.@." (List.length subsystems) ; *)
 
     (* Adds the outputs of a node as dummy properties to the node. *)
-    let augment_node ( { N.outputs ; N.props } as node ) =
+    let augment_node ( { N.outputs ; N.locals ; N.props } as node ) =
       { node
         with N.props =
-          LustreIndex.values outputs
+          (LustreIndex.values outputs) @
+          (List.concat (List.map LustreIndex.values locals))
           |> List.map (
             fun svar ->
               svar,

@@ -325,11 +325,18 @@ let abstraction_of_contract { C.assumes ; C.guarantees ; C.modes } =
 active. *)
 let one_mode_active scope { C.modes } =
   if modes = [] then failwith "one_mode_active asked on mode-less contract" ;
+  let first_mode = List.hd modes in
+  let pos = first_mode.C.pos in
+  let path = first_mode.C.path |> List.rev |> List.tl |> List.rev in
+  let name =
+    Format.asprintf "%a._one_mode_active"
+      (pp_print_list Format.pp_print_string ".") path
+  in
   (* Disjunction of mode requirements. *)
   modes |> List.map (fun { C.requires } -> conj_of requires) |> E.mk_or_n
   (* Building property. *)
-  |> property_of_expr
-    false "_one_mode_active" P.PropUnknown (P.GuaranteeOneModeActive scope)
+  |> property_of_expr false name
+       P.PropUnknown (P.GuaranteeOneModeActive (pos, scope))
 
 
 
@@ -520,7 +527,7 @@ let call_terms_of_node_call mk_fresh_state_var globals
         List.fold_left2 (
           fun (state_var_map_up, state_var_map_down) state_var inst_state_var -> 
              (SVM.add state_var inst_state_var state_var_map_up,
-              SVM.add state_var inst_state_var state_var_map_down)
+              SVM.add inst_state_var state_var state_var_map_down)
         ) (state_var_map_up, state_var_map_down)
           oracles
           call_oracles
@@ -570,7 +577,7 @@ let call_terms_of_node_call mk_fresh_state_var globals
   in
   
   (* Instantiate all properties of the called node in this node *)
-  let node_props = 
+  (*let node_props =
     properties |> List.fold_left (
       fun a ({ P.prop_name = n; P.prop_term = t } as p) -> 
 
@@ -599,15 +606,19 @@ let call_terms_of_node_call mk_fresh_state_var globals
           P.prop_term ;
           P.prop_status } :: a
     ) node_props
-  in
+  in*)
 
   (* Instantiate assumptions from contracts in this node. *)
-  let node_props = match contract with
-    | None -> node_props
-    | Some contract -> (
-      subrequirements_of_contract
-        call_pos (I.to_scope call_node_name) state_var_map_up contract
-    ) @ node_props
+  let node_props =
+    if Flags.Contracts.compositional () then
+      match contract with
+      | None -> node_props
+      | Some contract -> (
+        subrequirements_of_contract
+          call_pos (I.to_scope call_node_name) state_var_map_up contract
+      ) @ node_props
+    else
+      node_props
   in
 
   (* Return actual parameters of initial state constraint at bound in
@@ -1641,10 +1652,11 @@ let rec trans_sys_of_node'
         | [] ->
 
 
-          (* If node is a function, create a UF `f` for each output. Also,
+          (* If node is a function, create a UF `f` for each undefined output. Also,
           create the term `(= (f <inputs>) output)` to add it to `init` and
           `trans`. *)
           let function_ufs, function_constraints_at_0 =
+
             if not is_function then [], [] else (
               let inputs = D.values inputs in
               let type_of = StateVar.type_of_state_var in
@@ -1664,7 +1676,14 @@ let rec trans_sys_of_node'
                 ) ([], [])
               in
 
+              let defined_svars = List.fold_left
+                (fun set ((sv,_),_) -> SVS.add sv set) SVS.empty equations
+              in
+
+              let is_undefined svar = SVS.mem svar defined_svars |> not in
+
               D.values outputs
+              |> List.filter is_undefined
               |> List.fold_left (
                 fun (ufs, eqs) output ->
                   let uf_name =
@@ -1973,7 +1992,7 @@ let rec trans_sys_of_node'
                   (* Add property as assertion *)
                   (prop_term_init :: init_terms,
                    prop_term_trans :: trans_terms,
-                   properties)
+                   p :: properties)
 
                 else
 

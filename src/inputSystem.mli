@@ -27,6 +27,8 @@
 
 type _ t
 
+exception UnsupportedFileFormat of string
+
 (** Read input from file *)
 val read_input_lustre : string -> LustreNode.t t
 
@@ -62,6 +64,9 @@ val pp_print_path_pt : _ t -> TransSys.t -> TransSys.instance list -> bool -> Fo
 (** Output a path in the input system *)
 val pp_print_path_xml : _ t -> TransSys.t -> TransSys.instance list -> bool -> Format.formatter -> Model.path -> unit
 
+(** Output a path in the input system *)
+val pp_print_path_json : _ t -> TransSys.t -> TransSys.instance list -> bool -> Format.formatter -> Model.path -> unit
+
 (** Output a model as a sequnce of inputs in CSV. *)
 val pp_print_path_in_csv : _ t -> TransSys.t -> TransSys.instance list -> bool -> Format.formatter -> Model.path -> unit
 
@@ -91,8 +96,8 @@ val compile_oracle_to_rust : _ t -> Scope.t -> string -> (
 (** Parameter for contract generation. *)
 val contract_gen_param : _ t -> (Analysis.param * (Scope.t -> LustreNode.t))
 
-(** Transition system for contract generation, without any slicing. *)
-val contract_gen_trans_sys_of:
+(** Transition system for contract generation or interpreter, without any slicing. *)
+val unsliced_trans_sys_of:
   ?preserve_sig:bool -> 'a t -> Analysis.param -> TransSys.t * 'a t
 
 (* 

@@ -101,7 +101,7 @@ let pp_print_lexbuf ppf
      lex_mem : %a;@ \
      lex_start_p : %a;@ \
      lex_curr_p : %a;@]"
-    lex_buffer
+    (Bytes.to_string lex_buffer)
     lex_buffer_len
     lex_abs_pos
     lex_start_pos
@@ -257,6 +257,9 @@ let keyword_table = mk_hashtbl [
   (* Assertion *)
   "assert", ASSERT ;
 
+  (* Check *)
+  "check", CHECK ;
+
   (* Annotations. *)
   "PROPERTY", PROPERTY ;
   "MAIN", MAIN ;
@@ -332,14 +335,22 @@ let printable = ['+' '-' '*' '/' '>' '<' '=' ]+
 (* Floating point decimal 
 
    Don't allow floats like "2." this will conflict with array slicing "2..3" *)
-let decimal = ['0'-'9']+ '.' ['0'-'9']+ ('E' ('+'|'-')? ['0'-'9']+)?
+let decimal = ['0'-'9']* '.' ['0'-'9']+ (('E'|'e') ('+'|'-')? ['0'-'9']+)?
 
 (* Floating-point decimal with exponent only *)
-let exponent_decimal = ['0'-'9']+ 'E' ('+'|'-')? ['0'-'9']+
+let exponent_decimal = ['0'-'9']+ '.'? ('E'|'e') ('+'|'-')? ['0'-'9']+
 
 (* Integer numeral *)
 let numeral = ['0'-'9']+
 
+(* Hexadecimal numerals *)
+let hexdigit = ['0'-'9' 'a'-'f' 'A'-'F']
+let hexpo = 'p' ('+'|'-')? ['0'-'9']+
+
+let hex_num  = "0x" hexdigit+ 
+let hex_dec1 = "0x" hexdigit+ ('.' hexdigit*)? hexpo?
+let hex_dec2 = "0x" '.' hexdigit+ hexpo?
+              
 (* Whitespace *)
 let whitespace = [' ' '\t']
 
@@ -459,6 +470,10 @@ rule token = parse
   | decimal as p { DECIMAL p }
   | exponent_decimal as p { DECIMAL p }
   | numeral as p { NUMERAL p }
+
+  | hex_num as p { NUMERAL p }
+  | hex_dec1 as p { DECIMAL p }
+  | hex_dec2 as p { DECIMAL p }
 
   (* Keyword *)
   | id as p {
